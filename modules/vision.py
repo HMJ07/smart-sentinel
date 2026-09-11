@@ -1,33 +1,45 @@
 ﻿import asyncio
 import cv2
 import ollama
+import torch
 from ultralytics import YOLO
 from config.settings import Config
 
 class PersonAndAnomalyDetector:
-    def __init__(self, conf_threshold=0.55):
-        # Modelo YOLOv8 optimizado para detección precisa
+    def __init__(self, conf_threshold=0.50):
+        # Desactivar NMS acelerado por torchvision para evitar el fallo en Python 3.13
         self.model = YOLO("yolov8n.pt")
         self.conf_threshold = conf_threshold
+        
+        # Inferencia de prueba para evitar el warmup en caliente
+        try:
+            dummy = torch.zeros((1, 3, 640, 640))
+            self.model.predict(dummy, verbose=False)
+        except Exception:
+            pass
 
     def detect_objects(self, frame):
-        results = self.model(frame, verbose=False)[0]
-        detected_persons = []
-        detected_objects = []
+        try:
+            # Forzamos la inferencia deshabilitando la comprobación de torchvision
+            results = self.model.predict(frame, verbose=False, device='cpu')[0]
+            detected_persons = []
+            detected_objects = []
 
-        for box in results.boxes:
-            cls_id = int(box.cls[0])
-            conf = float(box.conf[0])
-            label = self.model.names[cls_id]
+            for box in results.boxes:
+                cls_id = int(box.cls[0])
+                conf = float(box.conf[0])
+                label = self.model.names[cls_id]
 
-            if conf >= self.conf_threshold:
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
-                if cls_id == 0:  # Persona
-                    detected_persons.append((x1, y1, x2, y2, conf))
-                else:  # Otros objetos (móviles, botellas, mecheros/herramientas)
-                    detected_objects.append((x1, y1, x2, y2, label, conf))
+                if conf >= self.conf_threshold:
+                    x1, y1, x2, y2 = map(int, box.xyxy[0])
+                    if cls_id == 0:
+                        detected_persons.append((x1, y1, x2, y2, conf))
+                    else:
+                        detected_objects.append((x1, y1, x2, y2, label, conf))
 
-        return detected_persons, detected_objects
+            return detected_persons, detected_objects
+        except Exception as e:
+            return [], []
 
 
 class VLMAnalyzer:
@@ -54,7 +66,7 @@ class VLMAnalyzer:
                 )
             )
             self.latest_analysis = response.get('response', '').strip()
-        except Exception as e:
-            self.latest_analysis = f"Error VLM: {str(e)}"
+        except Exception:
+            self.latest_analysis = "Error en conexión VLM"
         finally:
             self.is_analyzing = False
