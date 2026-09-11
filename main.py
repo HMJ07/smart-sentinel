@@ -2,6 +2,8 @@
 import cv2
 import time
 import threading
+import os
+os.environ["MEDIAPIPE_DISABLE_GPU"] = "1"
 from config.settings import Config
 from modules.camera import Camera
 from modules.motion import MotionDetector
