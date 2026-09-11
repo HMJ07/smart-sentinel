@@ -1,6 +1,6 @@
 ﻿opencv-python>=4.8.0
 mediapipe>=0.10.14
+ultralytics>=8.0.0
 ollama>=0.3.0
 numpy>=1.26.0
-rich>=13.0.0
 requests>=2.31.0

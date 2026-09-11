@@ -7,9 +7,11 @@
     MOTION_THRESHOLD = 25
     MIN_CONTOUR_AREA = 2500
 
-    OLLAMA_MODEL = "llama3.2-vision"
+    OLLAMA_MODEL = "llava"
     OLLAMA_HOST = "http://localhost:11434"
+    
     VLM_PROMPT = (
-        "Analiza brevemente la escena. Responde en 1-2 frases en espanol: "
-        "¿Hay alguna persona o evento sospechoso o inusual?"
+        "Analiza el fotograma minuciosamente en espanol. "
+        "Si observas personas, objetos en la mano o situaciones anómalas, "
+        "responde en una frase corta. Si no, responde: 'Escena normal'."
     )

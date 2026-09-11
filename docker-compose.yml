@@ -1,0 +1,14 @@
+﻿version: '3.8'
+
+services:
+  smart-sentinel:
+    build: .
+    container_name: smart_sentinel
+    ports:
+      - "5000:5000"
+    devices:
+      - "/dev/video0:/dev/video0"
+    volumes:
+      - ./captures:/app/captures
+      - ./events.db:/app/events.db
+    restart: unless-stopped
