@@ -1,0 +1,16 @@
+﻿# Entornos virtuales
+venv/
+.venv/
+env/
+
+# Archivos de caché de Python
+__pycache__/
+*.py[cod]
+
+# Modelo descargado automáticamente en runtime
+hand_landmarker.task
+
+# Archivos de configuración local e IDEs
+.vscode/
+.idea/
+*.log
