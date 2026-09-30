@@ -113,12 +113,13 @@ class Config:
 
     # --- Detector de anomalías ---
     CROWD_THRESHOLD = _env("CROWD_THRESHOLD", 4)            # personas a partir de las cuales hay aglomeración
-    LOITER_SECONDS = _env("LOITER_SECONDS", 30.0)           # merodeo: persona quieta en la misma zona
+    LOITER_SECONDS = _env("LOITER_SECONDS", 120.0)          # merodeo: persona quieta en la misma zona
     FALL_CONFIRM_SECONDS = _env("FALL_CONFIRM_SECONDS", 1.5)  # tiempo tumbado para confirmar caída
     ABANDON_SECONDS = _env("ABANDON_SECONDS", 20.0)         # objeto sin dueño (mochila, maleta...)
     NIGHT_START = _env("NIGHT_START", 23)                   # hora de inicio del horario "no esperado"
     NIGHT_END = _env("NIGHT_END", 6)                        # NIGHT_START == NIGHT_END lo desactiva
     VLM_TTL = _env("VLM_TTL", 30.0)                         # segundos de validez del último análisis del VLM
+    FLAP_GUARD_SECONDS = _env("FLAP_GUARD_SECONDS", 30.0)   # una anomalía que parpadea no avisa más de una vez en este tiempo
     REALERT_SECONDS = _env("REALERT_SECONDS", 60.0)         # reavisar si una anomalía persiste
     ACK_SECONDS = _env("ACK_SECONDS", 30.0)                 # silencio tras reconocer una alerta (👍)
     EVENT_COOLDOWN = _env("EVENT_COOLDOWN", 10.0)           # entre eventos informativos registrados

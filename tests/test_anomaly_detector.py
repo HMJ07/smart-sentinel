@@ -58,7 +58,7 @@ class AnomalyTests(unittest.TestCase):
 
     def test_loitering(self):
         det = AnomalyDetector()
-        a, _ = run(det, 40, step=0.5, persons=[person()])
+        a, _ = run(det, 130, step=0.5, persons=[person()])
         self.assertIn("MERODEO", self.codes(a))
 
     def test_walking_person_does_not_loiter(self):
@@ -75,6 +75,31 @@ class AnomalyTests(unittest.TestCase):
         a, _ = run(det, 3, start=1.8, persons=[person(y=420, w=300, h=110)])  # tumbado, más abajo
         self.assertIn("CAIDA", self.codes(a))
         self.assertEqual(a.level, CRITICAL)
+
+    def test_flapping_fall_notifies_once_and_survives_single_upright_frame(self):
+        det = AnomalyDetector()
+        run(det, 1.5, persons=[person(y=150, w=110, h=320)])
+        _, new = run(det, 3, start=1.8, persons=[person(y=420, w=300, h=110)])
+        notified = len([n for n in new if n.code == "CAIDA"])
+        t = 5.0
+        for _ in range(6):        # parpadeo: un fotograma "de pie" suelto y de nuevo tumbado
+            a = det.evaluate(t, SHAPE, [person(y=150, w=110, h=320)], [], hour=DAY)
+            notified += len([n for n in a.new if n.code == "CAIDA"])
+            for _ in range(4):
+                t += 0.3
+                a = det.evaluate(t, SHAPE, [person(y=420, w=300, h=110)], [], hour=DAY)
+                notified += len([n for n in a.new if n.code == "CAIDA"])
+            t += 0.3
+        self.assertEqual(notified, 1)
+        self.assertIn("CAIDA", self.codes(a))
+
+    def test_fall_clears_after_person_stands_up(self):
+        det = AnomalyDetector()
+        run(det, 1.5, persons=[person(y=150, w=110, h=320)])
+        a, _ = run(det, 3, start=1.8, persons=[person(y=420, w=300, h=110)])
+        self.assertIn("CAIDA", self.codes(a))
+        a, _ = run(det, 4, start=5.0, persons=[person(y=150, w=110, h=320)])
+        self.assertNotIn("CAIDA", self.codes(a))
 
     def test_lying_from_start_is_not_a_fall(self):
         a, _ = run(AnomalyDetector(), 4, persons=[person(y=420, w=300, h=110)])

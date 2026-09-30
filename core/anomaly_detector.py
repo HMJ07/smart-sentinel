@@ -68,6 +68,7 @@ class AnomalyDetector:
     CONFIRM = {"ARMA": 2, "AGLOMERACION": 3, "MOV_BRUSCO": 1, "PRESENCIA_NOCTURNA": 3, "VLM": 1}
     MOTION_RATIO = 0.35
     MOTION_SECONDS = 1.0
+    RECOVER_SECONDS = 1.0      # de pie este tiempo seguido = la persona se ha levantado
 
     def __init__(self):
         self.persons = CentroidTracker(max_dist_ratio=0.2, max_age=1.5, move_radius=0.12)
@@ -163,16 +164,24 @@ class AnomalyDetector:
             _, cy = t.center
             if h / w >= 1.25:                       # de pie
                 t.upright_seen_at, t.upright_cy, t.lying_since = now, cy, None
-            elif w / h >= 1.1:                      # tumbado
-                if t.lying_since is None:
-                    t.lying_since = now
-                lying_for = now - t.lying_since
-                came_from_standing = (t.upright_seen_at is not None
-                                      and t.lying_since - t.upright_seen_at <= 3.0
-                                      and cy - t.upright_cy > 0.08 * frame_h)
-                if lying_for >= Config.FALL_CONFIRM_SECONDS and came_from_standing:
-                    out["CAIDA"] = Anomaly("CAIDA", CRITICAL, f"Posible caída de la persona #{t.id}")
-                    return
+                if t.extra.get("fallen"):           # se levanta: solo se cancela tras 1 s seguido de pie
+                    since = t.extra.setdefault("upright_since", now)
+                    if now - since >= self.RECOVER_SECONDS:
+                        t.extra.pop("fallen", None)
+                        t.extra.pop("upright_since", None)
+            else:
+                t.extra.pop("upright_since", None)
+                if w / h >= 1.1:                    # tumbado
+                    if t.lying_since is None:
+                        t.lying_since = now
+                    came_from_standing = (t.upright_seen_at is not None
+                                          and t.lying_since - t.upright_seen_at <= 3.0
+                                          and cy - t.upright_cy > 0.08 * frame_h)
+                    if now - t.lying_since >= Config.FALL_CONFIRM_SECONDS and came_from_standing:
+                        t.extra["fallen"] = True
+            if t.extra.get("fallen"):
+                out["CAIDA"] = Anomaly("CAIDA", CRITICAL, f"Posible caída de la persona #{t.id}")
+                return
 
     def _check_abandoned(self, now, obj_tracks, person_tracks, out):
         for t in obj_tracks:
@@ -243,8 +252,9 @@ class AnomalyDetector:
         new = []
         for code, a in active.items():
             first_time = code not in self._active
-            stale = now - self._last_alert.get(code, -1e9) >= Config.REALERT_SECONDS
-            if first_time or stale:
+            gap = now - self._last_alert.get(code, -1e9)
+            # Si reaparece tras apagarse, solo se avisa de nuevo pasado FLAP_GUARD; si persiste, cada REALERT.
+            if gap >= (Config.FLAP_GUARD_SECONDS if first_time else Config.REALERT_SECONDS):
                 new.append(a)
                 self._last_alert[code] = now
         self._active = active
