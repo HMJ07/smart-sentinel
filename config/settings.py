@@ -61,6 +61,8 @@ class Config:
     ACK_SECONDS = _env("ACK_SECONDS", 30.0)                 # silencio tras reconocer una alerta (👍)
     EVENT_COOLDOWN = _env("EVENT_COOLDOWN", 10.0)           # entre eventos informativos registrados
 
+    WARMUP_SECONDS = _env("WARMUP_SECONDS", 4.0)             # arranque: sin alertas de movimiento
+
     # --- Avisos ---
     SOUND_ENABLED = _env("SOUND_ENABLED", 1)
     TELEGRAM_TOKEN = _env("TELEGRAM_TOKEN", "")

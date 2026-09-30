@@ -77,8 +77,8 @@ async def main():
         if frame_count % Config.DETECT_EVERY_N_FRAMES == 0:
             persons, objects = object_detector.detect_objects(frame)
 
-            frame_area = frame.shape[0] * frame.shape[1]
-            motion_ratio = sum(w * h for _, _, w, h in bboxes) / frame_area
+            # Los primeros segundos MOG2 aprende el fondo y la cámara ajusta la exposición: no fiarse.
+            motion_ratio = motion_detector.last_ratio if now - start_time > Config.WARMUP_SECONDS else 0.0
             vlm_valid = vlm_analyzer.updated_at is not None
             assessment = anomaly_detector.evaluate(
                 now, frame.shape, persons, objects, motion_ratio,
