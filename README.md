@@ -97,8 +97,16 @@ Descarga el instalador de tu sistema desde la pestaña **Releases** de GitHub (n
 
 **Primer arranque**
 
-* **macOS:** la app no está firmada con un Developer ID de Apple, así que la primera vez haz *clic derecho → Abrir → Abrir*
-  (o `xattr -dr com.apple.quarantine "/Applications/Smart Sentinel.app"`). Acepta el permiso de **cámara** cuando lo pida.
+* **macOS:** la app no está firmada con un Developer ID de Apple (requiere una cuenta de pago), así que macOS mostrará
+  *«Apple no ha podido verificar que Smart Sentinel no contenga software malicioso»* la primera vez. Es normal.
+  Arrastra la app a *Aplicaciones* (no la abras desde el `.dmg`) y elige **una** de estas dos vías:
+  * **Terminal (funciona en todas las versiones):**
+    `xattr -dr com.apple.quarantine "/Applications/Smart Sentinel.app"` y ábrela con normalidad.
+  * **Ajustes del Sistema:** intenta abrirla, pulsa *Aceptar* y ve a *Ajustes del Sistema → Privacidad y seguridad*;
+    al final de la pantalla, en *Seguridad*, pulsa **Abrir igualmente** e introduce tu contraseña.
+    (En macOS 15 Sequoia y posteriores ya no sirve el *clic derecho → Abrir* de versiones anteriores.)
+
+  Después acepta el permiso de **cámara** cuando lo pida. Solo hay que hacerlo una vez.
 * **Windows:** si SmartScreen avisa, pulsa *Más información → Ejecutar de todas formas*. Acepta el permiso de cámara.
 * En la ventana aparece durante 20 s la dirección del dashboard y su **clave**. También queda guardada en la carpeta de datos.
 * El análisis visual con IA (Ollama) es **opcional**: sin él, todo lo demás funciona. Para activarlo instala
