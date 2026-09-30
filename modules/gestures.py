@@ -10,6 +10,7 @@ from mediapipe.tasks import python
 from mediapipe.tasks.python import vision
 
 from config.settings import Config
+from modules.smoothing import OneEuroFilter
 
 MODEL_URL = ("https://storage.googleapis.com/mediapipe-models/hand_landmarker/"
              "hand_landmarker/float16/1/hand_landmarker.task")
@@ -55,7 +56,8 @@ class HandTracker:
 
         self.smooth_x = self.smooth_y = 0
         self.smooth_x_prev = self.smooth_y_prev = 0
-        self.alpha = 0.40
+        # One-Euro: sin temblor con la mano quieta y casi sin retraso al moverla (el EMA fijo hacía lo uno o lo otro).
+        self.fx, self.fy = OneEuroFilter(1.0, 0.012), OneEuroFilter(1.0, 0.012)
         self.is_drawing_active = False
 
         self.fist_start = None
@@ -167,10 +169,9 @@ class HandTracker:
             if hand_idx == 0:
                 raw_x, raw_y = coords[8]
                 if not self.is_drawing_active:
-                    self.smooth_x, self.smooth_y = raw_x, raw_y
-                else:
-                    self.smooth_x = int(self.alpha * raw_x + (1 - self.alpha) * self.smooth_x)
-                    self.smooth_y = int(self.alpha * raw_y + (1 - self.alpha) * self.smooth_y)
+                    self.fx.reset()
+                    self.fy.reset()
+                self.smooth_x, self.smooth_y = int(self.fx(raw_x, now)), int(self.fy(raw_y, now))
 
                 index_only = fingers[1] == 1 and not any(fingers[2:])
                 if index_only:
