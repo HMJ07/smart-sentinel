@@ -1,4 +1,4 @@
-﻿# Entornos virtuales
+# Entornos virtuales
 venv/
 .venv/
 env/
@@ -14,3 +14,8 @@ hand_landmarker.task
 .vscode/
 .idea/
 *.log
+
+# Datos generados en ejecución
+captures/
+events.db
+.DS_Store
