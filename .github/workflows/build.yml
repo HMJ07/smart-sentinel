@@ -1,0 +1,69 @@
+name: Build installers
+
+on:
+  workflow_dispatch:
+  pull_request:
+  push:
+    tags: ["v*"]          # v1.0.0 -> publica los instaladores en la pestaña Releases
+
+jobs:
+  macos:
+    runs-on: macos-14      # Apple Silicon
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt pyinstaller
+      - name: Pruebas
+        run: python -m unittest discover -s tests -v
+      - name: Construir .dmg
+        run: SENTINEL_BUILD_DIR="$RUNNER_TEMP/build" bash packaging/build_mac.sh
+      - name: Autotest de la app empaquetada (sin cámara)
+        run: |
+          export SENTINEL_DATA_DIR="$RUNNER_TEMP/data"
+          "$RUNNER_TEMP/build/dist/Smart Sentinel.app/Contents/MacOS/Smart Sentinel" --selftest
+          cat "$SENTINEL_DATA_DIR/sentinel.log" | tail -20
+          grep -q "SELFTEST OK" "$SENTINEL_DATA_DIR/sentinel.log"
+      - uses: actions/upload-artifact@v4
+        with: { name: SmartSentinel-macOS, path: dist/SmartSentinel-macOS.dmg }
+
+  windows:
+    runs-on: windows-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-python@v5
+        with: { python-version: "3.11", cache: pip }
+      - run: pip install -r requirements.txt pyinstaller
+      - name: Pruebas
+        run: python -m unittest discover -s tests -v
+      - name: Instalar Inno Setup
+        run: choco install innosetup --no-progress -y
+      - name: Construir instalador
+        run: ./packaging/build_windows.ps1
+        shell: pwsh
+      - name: Autotest de la app empaquetada (sin cámara)
+        shell: pwsh
+        run: |
+          $env:SENTINEL_DATA_DIR = Join-Path $env:RUNNER_TEMP "data"
+          $p = Start-Process -FilePath "dist\Smart Sentinel\Smart Sentinel.exe" -ArgumentList "--selftest" -Wait -PassThru
+          Get-Content (Join-Path $env:SENTINEL_DATA_DIR "sentinel.log") -Tail 20
+          if ($p.ExitCode -ne 0) { throw "Autotest fallido (código $($p.ExitCode))" }
+      - uses: actions/upload-artifact@v4
+        with:
+          name: SmartSentinel-Windows
+          path: |
+            dist/SmartSentinel-Windows.zip
+            dist/SmartSentinel-Setup.exe
+
+  release:
+    if: startsWith(github.ref, 'refs/tags/v')
+    needs: [macos, windows]
+    runs-on: ubuntu-latest
+    permissions: { contents: write }
+    steps:
+      - uses: actions/download-artifact@v4
+        with: { path: artifacts, merge-multiple: true }
+      - uses: softprops/action-gh-release@v2
+        with:
+          files: artifacts/*
+          generate_release_notes: true

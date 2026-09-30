@@ -1,0 +1,5 @@
+-r requirements.txt
+# Solo para exportar yolov8n.pt a ONNX y para generar el instalador; el instalador NO los incluye.
+ultralytics>=8.0.0
+onnx>=1.16.0
+pyinstaller>=6.6.0

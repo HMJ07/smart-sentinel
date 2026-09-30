@@ -1,4 +1,4 @@
-﻿# Entornos virtuales
+# Entornos virtuales
 venv/
 .venv/
 env/
@@ -13,4 +13,16 @@ hand_landmarker.task
 # Archivos de configuración local e IDEs
 .vscode/
 .idea/
+*.log
+
+# Datos generados en ejecución
+captures/
+events.db
+.DS_Store
+settings.env
+dashboard_password.txt
+session_secret
+*.onnx.tmp
+build/
+dist/
 *.log
