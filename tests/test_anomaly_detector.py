@@ -141,6 +141,15 @@ class AnomalyTests(unittest.TestCase):
         a, _ = run(det, 5, persons=crowd, hour=2)
         self.assertEqual(sum(x.message.count("escalada") for x in a.anomalies), 2)
 
+    def test_reset_clears_state(self):
+        det = AnomalyDetector()
+        crowd = [person(x=100 + i * 200) for i in range(4)]
+        a, _ = run(det, 2, persons=crowd)
+        self.assertEqual(a.level, WARNING)
+        det.reset()
+        a = det.evaluate(3.0, SHAPE, [], [], hour=DAY)
+        self.assertEqual(a.level, NORMAL)
+
     def test_normalize(self):
         self.assertEqual(normalize("CAÍDA Ñu"), "caida nu")
 

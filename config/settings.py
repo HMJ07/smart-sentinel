@@ -1,7 +1,55 @@
 import os
+import sys
 from pathlib import Path
 
 ROOT_DIR = Path(__file__).resolve().parent.parent
+IS_FROZEN = getattr(sys, "frozen", False)                  # True dentro del instalador (PyInstaller)
+RESOURCE_DIR = Path(getattr(sys, "_MEIPASS", ROOT_DIR))    # modelos empaquetados (solo lectura)
+
+
+def _user_data_dir():
+    """Carpeta de datos del usuario (base de datos, capturas, claves, ajustes)."""
+    override = os.environ.get("SENTINEL_DATA_DIR")
+    if override:
+        return Path(override).expanduser()
+    if not IS_FROZEN:
+        return ROOT_DIR                                     # en desarrollo todo queda en el proyecto
+    if sys.platform == "darwin":
+        return Path.home() / "Library" / "Application Support" / "SmartSentinel"
+    if sys.platform == "win32":
+        return Path(os.environ.get("APPDATA", Path.home())) / "SmartSentinel"
+    return Path.home() / ".local" / "share" / "SmartSentinel"
+
+
+DATA_DIR = _user_data_dir()
+DATA_DIR.mkdir(parents=True, exist_ok=True)
+
+SETTINGS_TEMPLATE = """# Ajustes de Smart Sentinel. Quita el '#' de una línea para activarla y reinicia la aplicación.
+# SENTINEL_DASHBOARD_PASSWORD=mi-clave-segura
+# SENTINEL_TELEGRAM_TOKEN=
+# SENTINEL_TELEGRAM_CHAT_ID=
+# SENTINEL_CAMERA_INDEX=0
+# SENTINEL_OLLAMA_MODEL=llama3.2-vision
+# SENTINEL_VLM_ENABLED=1
+# SENTINEL_DASHBOARD_HOST=127.0.0.1
+"""
+
+
+def _load_settings_file():
+    """Lee DATA_DIR/settings.env (CLAVE=valor). Las variables de entorno reales tienen prioridad."""
+    path = DATA_DIR / "settings.env"
+    if not path.exists():
+        if IS_FROZEN:
+            path.write_text(SETTINGS_TEMPLATE, encoding="utf-8")
+        return
+    for line in path.read_text(encoding="utf-8-sig").splitlines():
+        line = line.strip()
+        if line and not line.startswith("#") and "=" in line:
+            key, value = line.split("=", 1)
+            os.environ.setdefault(key.strip(), value.strip().strip('"').strip("'"))
+
+
+_load_settings_file()
 
 
 def _env(name, default):
@@ -17,9 +65,17 @@ def _env(name, default):
 
 class Config:
     ROOT_DIR = ROOT_DIR
-    DB_PATH = str(ROOT_DIR / "events.db")
-    CAPTURES_DIR = str(ROOT_DIR / "captures")
-    HAND_MODEL_PATH = str(ROOT_DIR / "hand_landmarker.task")
+    DATA_DIR = DATA_DIR
+    IS_FROZEN = IS_FROZEN
+    DB_PATH = str(DATA_DIR / "events.db")
+    CAPTURES_DIR = str(DATA_DIR / "captures")
+    LOG_PATH = str(DATA_DIR / "sentinel.log")
+    YOLO_MODEL_PATH = str(RESOURCE_DIR / "yolov8n.onnx")
+    HAND_MODEL_PATH = str(RESOURCE_DIR / "hand_landmarker.task"
+                          if (RESOURCE_DIR / "hand_landmarker.task").exists()
+                          else DATA_DIR / "hand_landmarker.task")   # si no viene empaquetado, se descarga aquí
+    YOLO_PROVIDER = _env("YOLO_PROVIDER", "auto")           # auto | cpu
+    VLM_ENABLED = _env("VLM_ENABLED", 1)
 
     CAMERA_INDEX = _env("CAMERA_INDEX", 0)
     FRAME_WIDTH = _env("FRAME_WIDTH", 1280)
@@ -48,6 +104,12 @@ class Config:
     # para abrirlo a la red local (el dashboard no tiene autenticación).
     DASHBOARD_HOST = _env("DASHBOARD_HOST", "127.0.0.1")
     DASHBOARD_PORT = _env("DASHBOARD_PORT", 5000)
+    # Si no se define, se genera una clave aleatoria y se guarda en DATA_DIR/dashboard_password.txt
+    DASHBOARD_PASSWORD = _env("DASHBOARD_PASSWORD", "")
+
+    # Gestos de seguridad (mantener la pose): ✌️ pausa/reanuda la vigilancia; tres dedos = pánico silencioso.
+    PANIC_HOLD_SECONDS = _env("PANIC_HOLD_SECONDS", 2.0)
+    ARM_HOLD_SECONDS = _env("ARM_HOLD_SECONDS", 1.5)
 
     # --- Detector de anomalías ---
     CROWD_THRESHOLD = _env("CROWD_THRESHOLD", 4)            # personas a partir de las cuales hay aglomeración

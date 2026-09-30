@@ -44,11 +44,18 @@ class AlertNotifier:
                 _play(assessment.level)
 
         critical_new = [a for a in assessment.new if a.severity == CRITICAL]
-        if critical_new and self.telegram_enabled:
-            text = "🚨 Smart Sentinel\n" + "\n".join(a.message for a in critical_new)
+        if critical_new:
+            self.send_telegram("🚨 Smart Sentinel\n" + "\n".join(a.message for a in critical_new), frame)
+
+    def send_telegram(self, text, frame=None):
+        """Envío en segundo plano y sin sonido (también lo usa el pánico silencioso). No hace nada sin configurar."""
+        if not self.telegram_enabled:
+            return
+        jpeg = None
+        if frame is not None:
             ok, buf = cv2.imencode(".jpg", frame)
-            threading.Thread(target=self._send_telegram, args=(text, buf.tobytes() if ok else None),
-                             daemon=True).start()
+            jpeg = buf.tobytes() if ok else None
+        threading.Thread(target=self._send_telegram, args=(text, jpeg), daemon=True).start()
 
     @staticmethod
     def _send_telegram(text, jpeg):

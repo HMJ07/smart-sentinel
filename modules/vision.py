@@ -1,40 +1,44 @@
 import asyncio
+import os
 import time
+
 import cv2
 import ollama
-from ultralytics import YOLO
+
 from config.settings import Config
+from modules.onnx_yolo import COCO_NAMES, OnnxYolo
+
+VLM_RETRY_SECONDS = 30.0   # tras un fallo, no insistir contra Ollama en cada ciclo
 
 
-def _pick_device():
-    # CUDA en Windows/Linux con NVIDIA; CPU en el resto (MPS da problemas con YOLO/NMS en algunas versiones).
+def _ensure_onnx_model(path):
+    """El instalador ya trae el .onnx. En desarrollo, se exporta una vez desde el .pt si hace falta."""
+    if os.path.exists(path):
+        return
+    pt = os.path.join(os.path.dirname(path), "yolov8n.pt")
     try:
-        import torch
-        return 0 if torch.cuda.is_available() else "cpu"
-    except Exception:
-        return "cpu"
+        from ultralytics import YOLO   # solo necesario para exportar, nunca en el instalador
+        print("⏳ Exportando yolov8n.pt a ONNX (solo la primera vez)...")
+        YOLO(pt).export(format="onnx", imgsz=640, simplify=True, opset=12)
+    except Exception as e:
+        raise RuntimeError(f"Falta el modelo {path}. Genera uno con: python scripts/export_model.py ({e})")
 
 
 class PersonAndAnomalyDetector:
     def __init__(self, conf_threshold=0.50):
-        self.model = YOLO(str(Config.ROOT_DIR / "yolov8n.pt"))
-        self.conf_threshold = conf_threshold
-        self.device = _pick_device()
+        _ensure_onnx_model(Config.YOLO_MODEL_PATH)
+        self.model = OnnxYolo(Config.YOLO_MODEL_PATH, conf_threshold, provider_preference=Config.YOLO_PROVIDER)
+        self.provider = self.model.provider
         self._warned = False
 
     def detect_objects(self, frame):
         try:
-            results = self.model.predict(frame, verbose=False, device=self.device,
-                                         conf=self.conf_threshold)[0]
             persons, objects = [], []
-            for box in results.boxes:
-                cls_id = int(box.cls[0])
-                conf = float(box.conf[0])
-                x1, y1, x2, y2 = map(int, box.xyxy[0])
+            for x1, y1, x2, y2, cls_id, conf in self.model.detect(frame):
                 if cls_id == 0:
                     persons.append((x1, y1, x2, y2, conf))
                 else:
-                    objects.append((x1, y1, x2, y2, self.model.names[cls_id], conf))
+                    objects.append((x1, y1, x2, y2, COCO_NAMES[cls_id], conf))
             return persons, objects
         except Exception as e:
             if not self._warned:  # avisar una vez, no silenciar el fallo para siempre
@@ -49,10 +53,11 @@ class VLMAnalyzer:
         self.latest_analysis = ""
         self.updated_at = None
         self._last_error = None
+        self._retry_at = 0.0
         self._client = ollama.Client(host=Config.OLLAMA_HOST)
 
     async def analyze_frame_async(self, frame):
-        if self.is_analyzing:
+        if self.is_analyzing or not Config.VLM_ENABLED or time.time() < self._retry_at:
             return
 
         self.is_analyzing = True
@@ -71,11 +76,14 @@ class VLMAnalyzer:
             )
             self.latest_analysis = response.get('response', '').strip()
             self.updated_at = time.time()
+            self._last_error = None
         except Exception as e:
             if str(e) != self._last_error:  # mostrar la causa real, una vez por tipo de error
                 self._last_error = str(e)
-                print(f"⚠️ VLM ({Config.OLLAMA_MODEL}): {e}")
-            self.latest_analysis = "Error en conexión VLM (¿Ollama está en marcha?)"
-            self.updated_at = None  # un error nunca cuenta como análisis válido para las anomalías
+                print(f"⚠️ Análisis visual no disponible ({Config.OLLAMA_MODEL}): {e}. "
+                      "El resto de funciones sigue activo.")
+            self.latest_analysis = ""
+            self.updated_at = None   # un error nunca cuenta como análisis válido para las anomalías
+            self._retry_at = time.time() + VLM_RETRY_SECONDS
         finally:
             self.is_analyzing = False

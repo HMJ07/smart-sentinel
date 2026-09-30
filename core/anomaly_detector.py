@@ -81,6 +81,10 @@ class AnomalyDetector:
         self._acked_level = NORMAL
 
     # ------------------------------------------------------------------ API
+    def reset(self):
+        """Olvida todo el estado (al reanudar tras una pausa no deben quedar alertas ni cuentas antiguas)."""
+        self.__init__()
+
     def acknowledge(self, now):
         """Reconoce las alertas actuales (p. ej. con 👍): silencia hasta que empeoren o pase el tiempo."""
         level = max((a.severity for a in self._active.values()), default=NORMAL)
@@ -135,7 +139,8 @@ class AnomalyDetector:
 
     def _check_motion(self, now, n_persons, ratio, out):
         if n_persons > 0 and ratio >= self.MOTION_RATIO:
-            self._motion_high_since = self._motion_high_since or now
+            if self._motion_high_since is None:
+                self._motion_high_since = now
             if now - self._motion_high_since >= self.MOTION_SECONDS:
                 out["MOV_BRUSCO"] = Anomaly("MOV_BRUSCO", WARNING,
                                             f"Movimiento brusco sostenido ({ratio:.0%} de la imagen)")
@@ -159,7 +164,8 @@ class AnomalyDetector:
             if h / w >= 1.25:                       # de pie
                 t.upright_seen_at, t.upright_cy, t.lying_since = now, cy, None
             elif w / h >= 1.1:                      # tumbado
-                t.lying_since = t.lying_since or now
+                if t.lying_since is None:
+                    t.lying_since = now
                 lying_for = now - t.lying_since
                 came_from_standing = (t.upright_seen_at is not None
                                       and t.lying_since - t.upright_seen_at <= 3.0

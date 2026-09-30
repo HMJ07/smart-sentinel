@@ -1,6 +1,8 @@
 opencv-python>=4.8.0
-mediapipe>=0.10.14
-ultralytics>=8.0.0
+mediapipe==0.10.14
+onnxruntime>=1.18.0; sys_platform != "win32"
+onnxruntime-directml>=1.18.0; sys_platform == "win32"
 ollama>=0.3.0
 numpy>=1.26.0
 flask>=3.0.0
+requests>=2.31.0

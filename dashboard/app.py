@@ -1,13 +1,24 @@
+import hmac
 import os
+import secrets
 import sqlite3
 import time
+from datetime import timedelta
+from pathlib import Path
 
 import cv2
-from flask import Flask, Response, jsonify, render_template_string, send_from_directory
+from flask import (Flask, Response, jsonify, redirect, render_template_string, request,
+                   send_from_directory, session, url_for)
 
 from config.settings import Config
 
 app = Flask(__name__)
+app.config.update(
+    SESSION_COOKIE_HTTPONLY=True,
+    SESSION_COOKIE_SAMESITE="Lax",
+    PERMANENT_SESSION_LIFETIME=timedelta(hours=12),
+    SENTINEL_PASSWORD=None,
+)
 frame_buffer = None
 status = {"level": "NORMAL", "summary": "Sin anomalías", "persons": 0, "acknowledged": False}
 
@@ -41,6 +52,7 @@ HTML_TEMPLATE = """
     </style>
 </head>
 <body>
+    <form method="post" action="/logout" style="float:right"><button style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:6px 12px;cursor:pointer">Cerrar sesión</button></form>
     <h1>🛡️ Smart Sentinel</h1>
     <div id="status" class="NORMAL">NORMAL<small>Sin anomalías</small></div>
     <div class="container">
@@ -99,6 +111,131 @@ HTML_TEMPLATE = """
 """
 
 
+
+# ------------------------------------------------------------------ autenticación
+MAX_FAILED_LOGINS = 5
+LOCKOUT_SECONDS = 60
+_failed = {}   # ip -> (fallos, instante del primer fallo)
+
+LOGIN_TEMPLATE = """
+<!DOCTYPE html>
+<html lang="es"><head><meta charset="UTF-8"><meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Smart Sentinel - Acceso</title>
+<style>
+ body { font-family: ui-monospace, monospace; background:#0f172a; color:#e2e8f0; display:grid; place-items:center; height:100vh; margin:0; }
+ form { background:#1e293b; padding:28px; border-radius:10px; width:300px; border-left:6px solid #38bdf8; }
+ h1 { color:#38bdf8; font-size:20px; margin:0 0 16px; }
+ input, button { width:100%; box-sizing:border-box; padding:10px; margin-top:10px; border-radius:6px; border:1px solid #334155; font:inherit; }
+ input { background:#0f172a; color:#e2e8f0; } button { background:#38bdf8; color:#0f172a; font-weight:bold; cursor:pointer; }
+ .err { color:#ef4444; margin-top:10px; font-size:13px; }
+</style></head><body>
+<form method="post" action="/login">
+ <form method="post" action="/logout" style="float:right"><button style="background:#1e293b;color:#94a3b8;border:1px solid #334155;border-radius:6px;padding:6px 12px;cursor:pointer">Cerrar sesión</button></form>
+    <h1>🛡️ Smart Sentinel</h1>
+ <label for="p">Clave de acceso</label>
+ <input id="p" type="password" name="password" autofocus autocomplete="current-password" required>
+ <button type="submit">Entrar</button>
+ {% if error %}<div class="err">{{ error }}</div>{% endif %}
+</form></body></html>
+"""
+
+
+def configure_auth():
+    """Fija la clave del dashboard. Devuelve (clave, es_automatica, ruta_del_archivo).
+
+    Prioridad: SENTINEL_DASHBOARD_PASSWORD > archivo guardado > clave aleatoria nueva (se guarda).
+    """
+    data_dir = Path(Config.DATA_DIR)
+    key_file = data_dir / "dashboard_password.txt"
+
+    if Config.DASHBOARD_PASSWORD:
+        password, automatic = Config.DASHBOARD_PASSWORD, False
+    elif key_file.exists() and key_file.read_text(encoding="utf-8").strip():
+        password, automatic = key_file.read_text(encoding="utf-8").strip(), True
+    else:
+        password, automatic = secrets.token_urlsafe(9), True
+        key_file.write_text(password, encoding="utf-8")
+        try:
+            key_file.chmod(0o600)
+        except OSError:
+            pass
+
+    secret_file = data_dir / "session_secret"
+    if not secret_file.exists():
+        secret_file.write_text(secrets.token_hex(32), encoding="utf-8")
+        try:
+            secret_file.chmod(0o600)
+        except OSError:
+            pass
+    app.secret_key = secret_file.read_text(encoding="utf-8").strip()
+    app.config["SENTINEL_PASSWORD"] = password
+    return password, automatic, str(key_file)
+
+
+def _locked_out(ip):
+    fails, first = _failed.get(ip, (0, 0.0))
+    if fails >= MAX_FAILED_LOGINS:
+        if time.time() - first < LOCKOUT_SECONDS:
+            return True
+        _failed.pop(ip, None)
+    return False
+
+
+def _register_failure(ip):
+    fails, first = _failed.get(ip, (0, time.time()))
+    _failed[ip] = (fails + 1, first)
+
+
+@app.before_request
+def require_login():
+    if request.endpoint in ("login", "static"):
+        return None
+    if app.config["SENTINEL_PASSWORD"] is None:      # nunca servir nada si la clave no está configurada
+        return Response("Autenticación no configurada", status=503)
+    if session.get("ok"):
+        return None
+    if request.path.startswith(("/api/", "/video_feed", "/captures/")):
+        return jsonify({"error": "no autenticado"}), 401
+    return redirect(url_for("login"))
+
+
+@app.after_request
+def security_headers(resp):
+    resp.headers["X-Frame-Options"] = "DENY"
+    resp.headers["X-Content-Type-Options"] = "nosniff"
+    resp.headers["Referrer-Policy"] = "no-referrer"
+    resp.headers["Cache-Control"] = "no-store"
+    resp.headers["Content-Security-Policy"] = (
+        "default-src 'self'; img-src 'self' data:; style-src 'self' 'unsafe-inline'; "
+        "script-src 'self' 'unsafe-inline'; frame-ancestors 'none'")
+    return resp
+
+
+@app.route("/login", methods=["GET", "POST"])
+def login():
+    if request.method == "GET":
+        return render_template_string(LOGIN_TEMPLATE, error=None)
+    ip = request.remote_addr or "?"
+    if _locked_out(ip):
+        return render_template_string(LOGIN_TEMPLATE, error="Demasiados intentos. Espera un minuto."), 429
+    supplied = request.form.get("password", "").encode("utf-8")
+    expected = app.config["SENTINEL_PASSWORD"].encode("utf-8")
+    if hmac.compare_digest(supplied, expected):
+        _failed.pop(ip, None)
+        session.clear()
+        session["ok"] = True
+        session.permanent = True
+        return redirect(url_for("index"))
+    _register_failure(ip)
+    return render_template_string(LOGIN_TEMPLATE, error="Clave incorrecta."), 401
+
+
+@app.route("/logout", methods=["POST"])
+def logout():
+    session.clear()
+    return redirect(url_for("login"))
+
+
 @app.route('/')
 def index():
     return render_template_string(HTML_TEMPLATE)
@@ -144,4 +281,6 @@ def captures(filename):
 
 
 def run_dashboard():
+    if app.config["SENTINEL_PASSWORD"] is None:
+        configure_auth()
     app.run(host=Config.DASHBOARD_HOST, port=Config.DASHBOARD_PORT, debug=False, use_reloader=False)

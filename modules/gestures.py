@@ -41,7 +41,9 @@ class HandTracker:
             urllib.request.urlretrieve(MODEL_URL, model_path)
 
         options = vision.HandLandmarkerOptions(
-            base_options=python.BaseOptions(model_asset_path=model_path),
+            # CPU explícito: MediaPipe >= 1.0 intenta iniciar Metal/GPU por defecto y aborta el proceso.
+            base_options=python.BaseOptions(model_asset_path=model_path,
+                                            delegate=python.BaseOptions.Delegate.CPU),
             running_mode=vision.RunningMode.VIDEO,
             num_hands=max_hands,
             min_hand_detection_confidence=detection_confidence,
@@ -64,10 +66,36 @@ class HandTracker:
         self.last_ack = 0.0
         self.ack_requested = False
 
+        # Gestos de seguridad: cada uno es (inicio de la pose, último disparo, petición pendiente)
+        self._holds = {"panic": [None, float("-inf")], "arm": [None, float("-inf")]}
+        self._pending = {"panic": False, "arm": False}
+
     def consume_ack(self):
         """True una sola vez cuando el usuario ha hecho 👍 sostenido."""
         requested, self.ack_requested = self.ack_requested, False
         return requested
+
+    def consume_panic(self):
+        """True una sola vez tras mantener tres dedos: alerta silenciosa (sin sonido ni aviso en pantalla)."""
+        requested, self._pending["panic"] = self._pending["panic"], False
+        return requested
+
+    def consume_arm_toggle(self):
+        """True una sola vez tras mantener ✌️: pausar/reanudar la vigilancia."""
+        requested, self._pending["arm"] = self._pending["arm"], False
+        return requested
+
+    def _hold(self, name, active, now, seconds, cooldown):
+        """Pose continua durante `seconds` -> marca la petición (un parpadeo reinicia la cuenta)."""
+        start, last_fire = self._holds[name]
+        if not active:
+            self._holds[name][0] = None
+        elif now - last_fire >= cooldown:
+            start = now if start is None else start
+            self._holds[name][0] = start
+            if now - start >= seconds:
+                self._pending[name] = True
+                self._holds[name] = [None, now]
 
     @staticmethod
     def _dist(p1, p2):
@@ -113,6 +141,7 @@ class HandTracker:
         now = time.time()
         fist_landmarks = None
         thumbs_up_seen = False
+        panic_pose = arm_pose = False
 
         for hand_idx, lm in enumerate(result.hand_landmarks or []):
             coords = [(int(p.x * w), int(p.y * h)) for p in lm]
@@ -128,6 +157,10 @@ class HandTracker:
             thumbs_up = self._is_thumbs_up(lm, fingers)
             thumbs_up_seen = thumbs_up_seen or thumbs_up
             is_fist = sum(fingers[1:]) == 0 and not thumbs_up
+            # Tres dedos (índice, corazón, anular; meñique plegado) = pánico. ✌️ (índice y corazón) = pausa.
+            # El pulgar se ignora en ambos: es el dedo menos fiable de detectar.
+            panic_pose = panic_pose or fingers[1:] == [1, 1, 1, 0]
+            arm_pose = arm_pose or fingers[1:] == [1, 1, 0, 0]
             if is_fist and fist_landmarks is None:
                 fist_landmarks = lm
 
@@ -170,6 +203,10 @@ class HandTracker:
                 self.trigger_exit = True
         elif self.fist_start is not None and now - self.fist_last_seen > FIST_GRACE:
             self.fist_start = None
+
+        # --- Gestos de seguridad (sin ningún aviso visual: pensados para no delatarse) ---
+        self._hold("panic", panic_pose, now, Config.PANIC_HOLD_SECONDS, cooldown=30.0)
+        self._hold("arm", arm_pose, now, Config.ARM_HOLD_SECONDS, cooldown=3.0)
 
         # --- Reconocer alerta con 👍 sostenido ---
         if thumbs_up_seen and now - self.last_ack > ACK_COOLDOWN:

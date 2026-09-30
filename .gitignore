@@ -19,3 +19,10 @@ hand_landmarker.task
 captures/
 events.db
 .DS_Store
+settings.env
+dashboard_password.txt
+session_secret
+*.onnx.tmp
+build/
+dist/
+*.log
