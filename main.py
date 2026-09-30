@@ -16,6 +16,7 @@ from core.alerts import AlertNotifier
 from core.anomaly_detector import Assessment, LEVEL_NAMES, NORMAL, AnomalyDetector
 from core.event_logger import EventLogger
 from core.runtime import setup_logging, show_error
+from core.worker import DetectionWorker
 from modules.camera import Camera
 from modules.gestures import HandTracker
 from modules.motion import MotionDetector
@@ -56,6 +57,7 @@ async def main():
 
     motion_detector = MotionDetector(min_area=Config.MIN_CONTOUR_AREA)
     object_detector = PersonAndAnomalyDetector(conf_threshold=0.50)
+    detection_worker = DetectionWorker(object_detector)
     hand_tracker = HandTracker(max_hands=2)
     vlm_analyzer = VLMAnalyzer()
     anomaly_detector = AnomalyDetector()
@@ -99,10 +101,14 @@ async def main():
         timestamp_ms = int((now - start_time) * 1000)
         motion_detected, bboxes = motion_detector.detect(frame)
 
+        # YOLO corre en su propio hilo: aquí solo se le pasa el fotograma y se recogen resultados ya terminados.
         if frame_count % Config.DETECT_EVERY_N_FRAMES == 0:
-            persons, objects = object_detector.detect_objects(frame)
+            detection_worker.submit(frame.copy())
+        fresh = detection_worker.poll()
+        if fresh is not None:
+            det_frame, persons, objects = fresh     # det_frame: el fotograma al que pertenecen esos recuadros
 
-            evidence = frame.copy()          # fotograma con recuadros: lo que se guarda y se envía
+            evidence = det_frame.copy()      # fotograma con recuadros: lo que se guarda y se envía
             draw_detections(evidence, persons, objects)
 
             if armed:
@@ -110,7 +116,7 @@ async def main():
                 motion_ratio = motion_detector.last_ratio if now - start_time > Config.WARMUP_SECONDS else 0.0
                 vlm_valid = vlm_analyzer.updated_at is not None
                 assessment = anomaly_detector.evaluate(
-                    now, frame.shape, persons, objects, motion_ratio,
+                    now, det_frame.shape, persons, objects, motion_ratio,
                     vlm_text=vlm_analyzer.latest_analysis if vlm_valid else "",
                     vlm_age=(now - vlm_analyzer.updated_at) if vlm_valid else None,
                 )
@@ -124,7 +130,7 @@ async def main():
                 # El VLM confirma o descarta: se lanza ante cualquier actividad o anomalía.
                 active = persons or objects or motion_detected or assessment.level > NORMAL
                 if active and not vlm_analyzer.is_analyzing:
-                    asyncio.create_task(vlm_analyzer.analyze_frame_async(frame.copy()))
+                    asyncio.create_task(vlm_analyzer.analyze_frame_async(det_frame))
 
                 if (persons or objects or motion_detected) and now - last_info_event > Config.EVENT_COOLDOWN:
                     last_info_event = now
@@ -192,6 +198,7 @@ async def main():
 
         await asyncio.sleep(0.001)
 
+    detection_worker.stop()
     camera.release()
     cv2.destroyAllWindows()
 

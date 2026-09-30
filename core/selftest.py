@@ -28,6 +28,20 @@ def run():
         assert isinstance(persons, list) and isinstance(objects, list)
         return f"acelerador {d.provider}"
 
+    def worker():
+        from core.worker import DetectionWorker
+        from modules.vision import PersonAndAnomalyDetector
+        w = DetectionWorker(PersonAndAnomalyDetector())
+        assert w.submit(frame.copy())
+        end = time.time() + 10
+        result = None
+        while result is None and time.time() < end:
+            result = w.poll()
+            time.sleep(0.01)
+        w.stop()
+        assert result is not None, "el hilo de detección no devolvió resultado"
+        return "YOLO en hilo aparte"
+
     def hands():
         from modules.gestures import HandTracker
         out = HandTracker().process(frame.copy(), 100)
@@ -55,7 +69,7 @@ def run():
         from modules.vision import VLMAnalyzer
         VLMAnalyzer()
 
-    for name, fn in (("detector de objetos (ONNX)", detector), ("rastreador de manos (MediaPipe)", hands),
+    for name, fn in (("detector de objetos (ONNX)", detector), ("hilo de detección", worker), ("rastreador de manos (MediaPipe)", hands),
                      ("motor de anomalías", anomalies), ("registro de eventos (SQLite)", logging_db),
                      ("dashboard + autenticación", dashboard), ("cliente del análisis visual", vlm)):
         try:
