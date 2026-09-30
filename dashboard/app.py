@@ -30,7 +30,7 @@ HTML_TEMPLATE = """
         @keyframes pulse { 50% { background: #3b1219; } }
         .container { display: flex; gap: 20px; flex-wrap: wrap; }
         .video-box { border: 2px solid #334155; border-radius: 8px; overflow: hidden; }
-        .video-box img { max-width: 100%; display:block; }
+        .video-box img { width: 640px; max-width: 100%; height: auto; display:block; }
         .events-box { flex: 1; min-width: 320px; background: #1e293b; padding: 15px; border-radius: 8px; max-height: 520px; overflow-y: auto; }
         table { width: 100%; border-collapse: collapse; font-size: 13px; }
         th, td { text-align: left; padding: 6px 8px; border-bottom: 1px solid #334155; }
@@ -44,7 +44,7 @@ HTML_TEMPLATE = """
     <h1>🛡️ Smart Sentinel</h1>
     <div id="status" class="NORMAL">NORMAL<small>Sin anomalías</small></div>
     <div class="container">
-        <div class="video-box"><img src="/video_feed" width="640" height="360" alt="Cámara en directo"/></div>
+        <div class="video-box"><img src="/video_feed" alt="Cámara en directo"/></div>
         <div class="events-box">
             <h2 style="margin-top:0">Historial de eventos</h2>
             <table id="events-table">

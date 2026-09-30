@@ -48,6 +48,7 @@ class VLMAnalyzer:
         self.is_analyzing = False
         self.latest_analysis = ""
         self.updated_at = None
+        self._last_error = None
         self._client = ollama.Client(host=Config.OLLAMA_HOST)
 
     async def analyze_frame_async(self, frame):
@@ -70,7 +71,10 @@ class VLMAnalyzer:
             )
             self.latest_analysis = response.get('response', '').strip()
             self.updated_at = time.time()
-        except Exception:
+        except Exception as e:
+            if str(e) != self._last_error:  # mostrar la causa real, una vez por tipo de error
+                self._last_error = str(e)
+                print(f"⚠️ VLM ({Config.OLLAMA_MODEL}): {e}")
             self.latest_analysis = "Error en conexión VLM (¿Ollama está en marcha?)"
             self.updated_at = None  # un error nunca cuenta como análisis válido para las anomalías
         finally:

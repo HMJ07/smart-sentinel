@@ -32,7 +32,7 @@ class Config:
     # YOLO es lo más costoso: se ejecuta cada N fotogramas y se reutiliza el resultado.
     DETECT_EVERY_N_FRAMES = _env("DETECT_EVERY_N_FRAMES", 3)
 
-    OLLAMA_MODEL = _env("OLLAMA_MODEL", "llava")
+    OLLAMA_MODEL = _env("OLLAMA_MODEL", "llama3.2-vision")
     OLLAMA_HOST = _env("OLLAMA_HOST", "http://localhost:11434")
 
     VLM_PROMPT = (
